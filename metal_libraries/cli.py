@@ -165,7 +165,7 @@ def main() -> None:
     result = ""
 
     if args.download:
-        result = download(args.continuous_integration, args.os_version, args.target)
+        result = download(args.continuous_integration, args.os_version, args.target or "26.7.1")
     elif args.extract:
         result = extract(args.extract)
     elif args.fetch:
