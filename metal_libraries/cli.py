@@ -165,7 +165,8 @@ def main() -> None:
     result = ""
 
     if args.download:
-        result = download(args.continuous_integration, args.os_version, args.target or "26.7.1")
+        pin = "26.7.1" if args.os_version in (None, 26) else None
+        result = download(args.continuous_integration, args.os_version, args.target or pin)
     elif args.extract:
         result = extract(args.extract)
     elif args.fetch:
