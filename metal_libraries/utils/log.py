@@ -4,6 +4,7 @@ log.py: Display subprocess error output in formatted string.
 """
 
 import subprocess
+import sys
 
 
 def log(process: subprocess.CompletedProcess) -> None:
@@ -31,4 +32,4 @@ def log(process: subprocess.CompletedProcess) -> None:
         output += format_output(process.stderr)
     else:
         output += "        None\n"
-    print(output)
+    print(output, file=sys.stderr)

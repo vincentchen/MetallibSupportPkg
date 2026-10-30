@@ -10,6 +10,7 @@ import platform
 import lzma
 import re
 import struct
+import sys
 
 from pathlib import Path
 
@@ -236,7 +237,7 @@ class OTAExtract:
 
                     for index, name in enumerate(payload_names, 1):
                         archive = tmp_path / "payload.aar"
-                        print(f"[OTA Extract] Payload {index}/{len(payload_names)}: {name}")
+                        print(f"[OTA Extract] Payload {index}/{len(payload_names)}: {name}", file=sys.stderr)
 
                         try:
                             with zip_ref.open(name) as source:
@@ -253,7 +254,7 @@ class OTAExtract:
                         except Exception as error:
                             # A single unreadable payload should not abort the whole
                             # build; metallibs are spread over many payloads.
-                            print(f"[OTA Extract] WARNING: {error}")
+                            print(f"[OTA Extract] WARNING: {error}", file=sys.stderr)
                             failures.append(name)
                         finally:
                             archive.unlink(missing_ok=True)
@@ -261,7 +262,7 @@ class OTAExtract:
                     if payload_names and extracted == 0:
                         raise Exception(f"Failed to extract every OTA payload: {failures}")
                     if failures:
-                        print(f"[OTA Extract] WARNING: skipped {len(failures)} payload(s): {failures}")
+                        print(f"[OTA Extract] WARNING: skipped {len(failures)} payload(s): {failures}", file=sys.stderr)
 
                     links_name = payload_prefix + "links.txt"
                     if links_name in names:
