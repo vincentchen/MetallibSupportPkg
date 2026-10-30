@@ -43,7 +43,7 @@ class MetallibSupportPkgManifest:
             "build":     self._latest_ipsw["Build"],
             "version":   version,
             "date":      self._latest_ipsw['Date'],
-            "sha1sum":   self._latest_ipsw["Hash"],
+            "sha1sum":   self._latest_ipsw.get("Hash") or "",
             "name":      f"MetallibSupportPkg {self._latest_ipsw['Version']} build {self._latest_ipsw['Build']}",
             "seen":      datetime.now().strftime("%Y-%m-%d"),
             "url":       f"https://github.com/pyquick/MetallibSupportPkg/releases/download/{version}-{self._latest_ipsw['Build']}/MetallibSupportPkg-{version}-{self._latest_ipsw['Build']}.pkg",

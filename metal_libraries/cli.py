@@ -19,13 +19,14 @@ from .utils.ci_info      import CIInfo
 from .utils.patch_format import GenerateSysPatchDictionary
 
 
-def download(ci: bool = False, os_version: int = None) -> str:
+def download(ci: bool = False, os_version: int = None, target: str = None) -> str:
     """
     Fetches and downloads latest IPSW
 
     Parameters:
     - ci: boolean, if True, fetches the latest IPSW for CI
     - os_version: int, target macOS major version (e.g. 15 or 26). If None, fetches both.
+    - target: str, optional macOS version or build to pin (e.g. "26.7.1" or "25G241")
 
     Returns:
     - IPSW file path
@@ -40,7 +41,7 @@ def download(ci: bool = False, os_version: int = None) -> str:
         builds_to_ignore.append("24A5264n")
 
     os_versions = [os_version] if os_version else [26]
-    url = FetchIPSW(builds_to_ignore, os_versions=os_versions).fetch()
+    url = FetchIPSW(builds_to_ignore, os_versions=os_versions, target=target).fetch()
     if url is None or url == {}:
         return ""
     file = DownloadFile(url).file()
@@ -156,6 +157,7 @@ def main() -> None:
     parser.add_argument("--notarization-password",        type=str,            help="Apple Notarization Password.")
     parser.add_argument("-c", "--continuous-integration", action="store_true", help="Run in continuous integration mode.")
     parser.add_argument("--os-version",                  type=int,            help="Target macOS major version (e.g. 15 or 26). If not specified, processes all supported versions.")
+    parser.add_argument("--target",                      type=str,            help="Pin a macOS version or build (e.g. 26.7.1 or 25G241). Overrides the CI skip list.")
     parser.add_argument("--mmacos-version-min",          type=str, default="14.0", help="Minimum macOS deployment target for Metal recompilation (default: 14.0).")
 
     args = parser.parse_args()
@@ -163,7 +165,7 @@ def main() -> None:
     result = ""
 
     if args.download:
-        result = download(args.continuous_integration, args.os_version)
+        result = download(args.continuous_integration, args.os_version, args.target)
     elif args.extract:
         result = extract(args.extract)
     elif args.fetch:

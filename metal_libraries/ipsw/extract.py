@@ -7,6 +7,9 @@ import tempfile
 import plistlib
 import subprocess
 import platform
+import lzma
+import re
+import struct
 
 from pathlib import Path
 
@@ -123,52 +126,151 @@ class OTAExtract:
 
         return output
 
+    def _decode_pbzx(self, source, output: Path) -> bool:
+        """
+        Decode Apple's pbzx stream used by OTA payloads.
+
+        OTA payload files are pbzx-wrapped Apple Archives (YAA1), while
+        /usr/bin/aa only understands the Apple Archive itself. A pbzx stream is
+        a 12-byte header followed by XZ-compressed chunks, each prefixed with
+        the uncompressed and compressed sizes.
+
+        The stream is decoded straight to disk because a single payload can
+        expand to well over a gigabyte.
+
+        Parameters:
+        - source: binary file object positioned at the start of the payload
+        - output: path the decoded Apple Archive is written to
+
+        Returns:
+        - True if the payload was a pbzx stream, False otherwise
+        """
+        if source.read(4) != b"pbzx":
+            return False
+
+        source.read(8)  # Global flags (uncompressed chunk size)
+
+        with open(output, "wb") as file:
+            while True:
+                header = source.read(16)
+                if len(header) < 16:
+                    break
+
+                _, compressed_size = struct.unpack(">QQ", header)
+                decompressor = lzma.LZMADecompressor()
+                remaining = compressed_size
+                while remaining > 0:
+                    chunk = source.read(min(remaining, 1 << 20))
+                    if not chunk:
+                        raise Exception("Unexpected end of pbzx stream")
+                    remaining -= len(chunk)
+                    file.write(decompressor.decompress(chunk))
+
+        return True
+
+
+    def _extract_archive(self, archive: Path, output_dir: Path) -> None:
+        """
+        Extract all metallib files from a single Apple Archive.
+        """
+        result = subprocess.run(
+            [
+                "/usr/bin/aa",
+                "extract",
+                "-i",
+                str(archive),
+                "-d",
+                str(output_dir),
+                "-include-regex",
+                ".*metallib.*",
+                "-enable-dedup"
+            ],
+        )
+        if result.returncode != 0:
+            log(result)
+            raise Exception(f"Failed to extract {archive}")
+
+
     def _extract_system_volume(self) -> str:
         """
         Extract the system volume from an OTA file.
         """
 
         output_dir = Path("root")
+        links_txt = ""
+        failures = []
+        extracted = 0
 
         with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+
             if self._ota.suffix == ".aea":
-                self._decrypt_aea(self._ota, Path(tmp_dir) / "extracted")
+                archive = tmp_path / "payload.aar"
+                self._decrypt_aea(self._ota, archive)
+                self._extract_archive(archive, output_dir)
             else:
                 with zipfile.ZipFile(self._ota, "r") as zip_ref:
-                    zip_ref.extractall(tmp_dir)
+                    names = zip_ref.namelist()
 
-            # Extract all payload files in AssetData/payloadv2, as well as the fixup manifest and the data payload
-            payload_dir = Path(tmp_dir) / "AssetData" / "payloadv2"
-            for file in sorted(payload_dir.glob("payload.*")) + [
-                # payload_dir / "fixup.manifest",  # Buggy
-                payload_dir / "data_payload",
-            ]:
-                if file.suffix == ".ecc":
-                    continue
-                result = subprocess.run(
-                    [
-                        "/usr/bin/aa",
-                        "extract",
-                        "-i",
-                        str(file),
-                        "-d",
-                        str(output_dir),
-                        "-include-regex",
-                        ".*metallib.*",
-                        "-include-path",
-                        "System/Library/CoreServices/SystemVersion.plist",
-                        "-enable-dedup"
-                    ],
-                )
-                if result.returncode != 0:
-                    log(result)
-                    raise Exception(f"Failed to extract {file}")
+                    # SystemVersion.plist is needed by MetallibFetch to name the
+                    # output directory (<version>-<build>). The OTA zip carries a
+                    # copy at AssetData/boot, so use it instead of relying on the
+                    # extraction filter below.
+                    version_name = "AssetData/boot/SystemVersion.plist"
+                    if version_name in names:
+                        version_dest = output_dir / "System/Library/CoreServices/SystemVersion.plist"
+                        version_dest.parent.mkdir(parents=True, exist_ok=True)
+                        version_dest.write_bytes(zip_ref.read(version_name))
+
+                    # Extract all payload files in AssetData/payloadv2, as well as
+                    # the data payload. Payloads are pbzx-wrapped Apple Archives.
+                    payload_prefix = "AssetData/payloadv2/"
+                    payload_names = sorted(
+                        name for name in names
+                        if name.startswith(payload_prefix)
+                        and re.fullmatch(r"payload\.\d+", name.rsplit("/", 1)[-1])
+                    )
+                    data_payload = payload_prefix + "data_payload"
+                    if data_payload in names:
+                        payload_names.append(data_payload)
+
+                    for index, name in enumerate(payload_names, 1):
+                        archive = tmp_path / "payload.aar"
+                        print(f"[OTA Extract] Payload {index}/{len(payload_names)}: {name}")
+
+                        try:
+                            with zip_ref.open(name) as source:
+                                if not self._decode_pbzx(source, archive):
+                                    # data_payload and similar placeholders are not archives
+                                    continue
+
+                            with open(archive, "rb") as file:
+                                if file.read(4) not in (b"AA01", b"YAA1"):
+                                    continue
+
+                            self._extract_archive(archive, output_dir)
+                            extracted += 1
+                        except Exception as error:
+                            # A single unreadable payload should not abort the whole
+                            # build; metallibs are spread over many payloads.
+                            print(f"[OTA Extract] WARNING: {error}")
+                            failures.append(name)
+                        finally:
+                            archive.unlink(missing_ok=True)
+
+                    if payload_names and extracted == 0:
+                        raise Exception(f"Failed to extract every OTA payload: {failures}")
+                    if failures:
+                        print(f"[OTA Extract] WARNING: skipped {len(failures)} payload(s): {failures}")
+
+                    links_name = payload_prefix + "links.txt"
+                    if links_name in names:
+                        links_txt = zip_ref.read(links_name).decode("utf-8")
 
             # Handle links.txt
-            links_txt = (Path(tmp_dir) / "AssetData" / "payloadv2" / "links.txt").read_text(encoding="utf-8").splitlines()
             links = {}
             last_target = None
-            for line in links_txt:
+            for line in links_txt.splitlines():
                 if not line.strip():
                     continue
                 if line[0] == "=":
@@ -178,12 +280,13 @@ class OTAExtract:
                     assert last_target
                     links[last_target].append(line[1:].strip())
 
-            for target, links in links.items():
+            for target, target_links in links.items():
                 if "metallib" not in target:
                     continue
                 target_path = output_dir / target
-                assert target_path.exists()
-                for link in links:
+                if not target_path.exists():
+                    continue
+                for link in target_links:
                     link_path = output_dir / link
                     link_path.parent.mkdir(parents=True, exist_ok=True)
                     subprocess.check_call(

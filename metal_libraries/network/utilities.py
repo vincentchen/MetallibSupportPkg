@@ -63,6 +63,26 @@ class NetworkUtilities:
             return False
 
 
+    def content_length(self) -> int:
+        """
+        Get the Content-Length of a URL without downloading it.
+
+        Returns:
+            int: Content-Length in bytes, or 0 if unavailable
+        """
+        try:
+            response = SESSION.head(self.url, timeout=10, allow_redirects=True)
+            return int(response.headers.get("Content-Length", 0))
+        except (
+            requests.exceptions.Timeout,
+            requests.exceptions.TooManyRedirects,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.HTTPError,
+            ValueError
+        ):
+            return 0
+
+
     def get(self, url: str, **kwargs) -> requests.Response:
         """
         Wrapper for requests's get method
