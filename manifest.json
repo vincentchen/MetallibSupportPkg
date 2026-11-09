@@ -1,12 +1,12 @@
 [
     {
-        "build": "25G332",
-        "version": "26.7.2",
-        "date": "2026-10-26",
+        "build": "25G342",
+        "version": "26.7.3",
+        "date": "2026-11-09",
         "sha1sum": "",
-        "name": "MetallibSupportPkg 26.7.2 build 25G332",
+        "name": "MetallibSupportPkg 26.7.3 build 25G342",
         "seen": "2026-11-09",
-        "url": "https://github.com/pyquick/MetallibSupportPkg/releases/download/26.7.2-25G332/MetallibSupportPkg-26.7.2-25G332.pkg"
+        "url": "https://github.com/pyquick/MetallibSupportPkg/releases/download/26.7.3-25G342/MetallibSupportPkg-26.7.3-25G342.pkg"
     },
     {
         "build": "24A335",
